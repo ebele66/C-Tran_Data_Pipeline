@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+#
+# Author: Ebele Esimai
+
+# Purpose:
+# Consume messages from kafka, validate, and write to json file.
+
+
+# Copyright 2020 Confluent Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# =============================================================================
+#
+# Consume messages from Confluent Cloud
+# Using Confluent Python Client for Apache Kafka
+#
+# =============================================================================
+
+from confluent_kafka import Consumer
+import json
+import ccloud_lib
+import datetime
+
+
+if __name__ == '__main__':
+
+    # Read arguments and configurations and initialize
+    args = ccloud_lib.parse_args()
+    config_file = args.config_file
+    topic = args.topic
+    # file_name = args.input_data
+    conf = ccloud_lib.read_ccloud_config(config_file)
+
+    # Create Consumer instance
+    # 'auto.offset.reset=earliest' to start reading from the beginning of the
+    #   topic if no committed offsets exist
+    consumer = Consumer({
+        'bootstrap.servers': conf['bootstrap.servers'],
+        'sasl.mechanisms': conf['sasl.mechanisms'],
+        'security.protocol': conf['security.protocol'],
+        'sasl.username': conf['sasl.username'],
+        'sasl.password': conf['sasl.password'],
+        'group.id': 'python_example_group_1',
+        'auto.offset.reset': 'earliest',
+    })
+
+    # Subscribe to topic
+    consumer.subscribe([topic])
+
+    # Process messages
+    total_count = 0
+    file_name = datetime.datetime.today().date()
+    write_file = open("/home/esimai/data/dump"+str(file_name) + ".json", "w")
+    write_file.write("[\n")
+    try:
+        while True:
+            msg = consumer.poll(1.0)
+            if msg is None:
+                # No message available within timeout.
+                # Initial message consumption may take up to
+                # `session.timeout.ms` for the consumer group to
+                # rebalance and start consuming
+                print("Waiting for message or event/error in poll()")
+                continue
+            elif msg.error():
+                print('error: {}'.format(msg.error()))
+            else:
+                # Check for Kafka message
+                record_key = msg.key()
+                record_value = msg.value()
+                data = json.loads(record_value)
+                json.dump(data, write_file)
+                write_file.write(",\n")
+                total_count += 1
+                # print("Consumed record with key {} and value {}, \
+                #   and updated total count to {}"
+                print("updated total count to {}".format(total_count))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Leave group and commit final offsets
+        consumer.close()
+        write_file.write("]")
+        write_file.close()
+        f = open("/home/esimai/data/msg.log","a")
+        f.write("Total messages consumed is {}\n".format(total_count))
+        f.close()
